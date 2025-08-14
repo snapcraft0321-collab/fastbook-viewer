@@ -1,0 +1,462 @@
+/* 뷰어 페이지 스타일 */
+:root {
+    --viewer-bg: #1a1a1a;
+    --toolbar-bg: rgba(0, 0, 0, 0.9);
+    --controls-bg: rgba(0, 0, 0, 0.9);
+    --text-color: #ffffff;
+    --text-secondary: #b0b0b0;
+    --button-hover: rgba(255, 255, 255, 0.1);
+    --primary-color: #4285f4;
+    --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+    overflow: hidden;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background-color: var(--viewer-bg);
+    color: var(--text-color);
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* 뷰어 컨테이너 */
+.viewer {
+    width: 100%;
+    height: 100vh;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+/* 툴바 */
+.toolbar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: var(--toolbar-bg);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 0.75rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 1000;
+    transition: transform 0.3s ease;
+}
+
+.toolbar.hidden {
+    transform: translateY(-100%);
+}
+
+.book-title {
+    flex: 1;
+    text-align: center;
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--text-color);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0 1rem;
+}
+
+/* 이미지 컨테이너 */
+.image-container {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background-color: var(--viewer-bg);
+}
+
+/* 메인 이미지 */
+.main-image {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    transition: transform 0.3s ease;
+    cursor: grab;
+}
+
+.main-image.dragging {
+    cursor: grabbing;
+    transition: none;
+}
+
+.main-image.zoomed {
+    cursor: move;
+}
+
+/* 로딩 스켈레톤 */
+.loading-skeleton {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60%;
+    max-width: 400px;
+    height: 70%;
+    max-height: 600px;
+}
+
+.skeleton-box {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0.05) 25%,
+        rgba(255, 255, 255, 0.1) 50%,
+        rgba(255, 255, 255, 0.05) 75%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+    border-radius: 8px;
+}
+
+@keyframes skeleton-loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* 이미지 에러 */
+.image-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    color: var(--text-secondary);
+}
+
+.image-error svg {
+    opacity: 0.5;
+}
+
+.image-error p {
+    font-size: 0.875rem;
+}
+
+/* 네비게이션 영역 */
+.nav-area {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 30%;
+    cursor: pointer;
+    z-index: 100;
+    transition: background-color 0.3s ease;
+}
+
+.nav-area:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.nav-prev {
+    left: 0;
+}
+
+.nav-next {
+    right: 0;
+}
+
+/* 컨트롤 */
+.controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--controls-bg);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 1rem;
+    z-index: 1000;
+    transition: transform 0.3s ease;
+}
+
+.controls.hidden {
+    transform: translateY(100%);
+}
+
+.controls-content {
+    max-width: 800px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+/* 페이지 정보 */
+.page-info {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+}
+
+.page-display {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+}
+
+.page-input {
+    width: 60px;
+    padding: 0.25rem 0.5rem;
+    background-color: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    color: var(--text-color);
+    text-align: center;
+    font-size: 0.875rem;
+}
+
+.page-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.page-separator {
+    color: var(--text-secondary);
+}
+
+.total-pages {
+    color: var(--text-color);
+}
+
+/* 진행률 슬라이더 */
+.progress-container {
+    position: relative;
+    width: 100%;
+    height: 32px;
+    display: flex;
+    align-items: center;
+}
+
+.progress-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+
+.progress-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    background: var(--primary-color);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.progress-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+}
+
+.progress-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    background: var(--primary-color);
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+    transition: transform 0.2s ease;
+}
+
+.progress-slider::-moz-range-thumb:hover {
+    transform: scale(1.2);
+}
+
+.progress-fill {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 4px;
+    background: var(--primary-color);
+    border-radius: 2px;
+    pointer-events: none;
+    transition: width 0.3s ease;
+}
+
+/* 줌 컨트롤 */
+.zoom-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+#zoomLevel {
+    font-size: 0.75rem;
+    min-width: 50px;
+    text-align: center;
+}
+
+/* 버튼 스타일 */
+.btn-icon {
+    background: transparent;
+    border: none;
+    color: var(--text-color);
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s ease;
+}
+
+.btn-icon:hover {
+    background-color: var(--button-hover);
+}
+
+.btn-icon:active {
+    transform: scale(0.95);
+}
+
+.btn-icon svg {
+    width: 24px;
+    height: 24px;
+    stroke-width: 2;
+}
+
+.btn-secondary {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: var(--text-color);
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    transition: var(--transition);
+}
+
+.btn-secondary:hover {
+    background-color: var(--button-hover);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* 제스처 오버레이 */
+.gesture-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    pointer-events: none;
+}
+
+/* 전체화면 스타일 */
+.viewer.fullscreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+}
+
+/* UI 자동 숨김 */
+.viewer.ui-hidden .toolbar,
+.viewer.ui-hidden .controls {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.viewer:not(.ui-hidden) .toolbar,
+.viewer:not(.ui-hidden) .controls {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* 모바일 반응형 */
+@media (max-width: 768px) {
+    .toolbar {
+        padding: 0.5rem;
+    }
+    
+    .book-title {
+        font-size: 0.875rem;
+    }
+    
+    .controls {
+        padding: 0.75rem;
+    }
+    
+    .page-input {
+        width: 50px;
+    }
+    
+    .nav-area {
+        width: 40%;
+    }
+    
+    .zoom-controls {
+        gap: 0.25rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .controls-content {
+        gap: 0.5rem;
+    }
+    
+    .page-info {
+        gap: 0.5rem;
+    }
+    
+    .btn-icon {
+        padding: 0.375rem;
+    }
+    
+    .btn-icon svg {
+        width: 20px;
+        height: 20px;
+    }
+}
+
+/* 접근성 */
+:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+/* 애니메이션 */
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.fade-in {
+    animation: fadeIn 0.3s ease-in;
+}
+
+/* 페이지 전환 애니메이션 */
+.page-transition {
+    transition: opacity 0.2s ease-in-out;
+}
+
+.page-transition.loading {
+    opacity: 0.5;
+}
