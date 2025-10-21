@@ -713,21 +713,21 @@ const Navigation = (() => {
                 ).catch(err => log.error('진행률 저장 실패:', err));
             }, 1000);
             
-            // 비동기 프리로딩
-            requestAnimationFrame(() => {
+            // 비동기 프리로딩 (requestIdleCallback 폴리필 사용)
+            setTimeout(() => {
                 ImageLoader.preloadImages(
                     pageNumber,
                     ViewerState.totalPages,
                     ViewerState.images
                 ).catch(err => log.warn('프리로드 실패:', err));
-            });
+            }, 100);
             
-            // 주기적 캐시 정리
+            // 주기적 캐시 정리 (requestIdleCallback 폴리필 사용)
             if (pageNumber % 20 === 0) {
-                requestIdleCallback(() => {
+                setTimeout(() => {
                     ImageLoader.cleanupCache(pageNumber);
                     log.debug('캐시 정리 완료');
-                });
+                }, 1000);
             }
             
             if (CONFIG.DEBUG && pageNumber % 10 === 0) {
@@ -1141,13 +1141,14 @@ async function initializeViewer() {
             
             // 진행률이 있으면 해당 위치 주변부터 프리로드
             if (savedProgress.currentPage > 1) {
-                requestIdleCallback(() => {
+                // requestIdleCallback 폴리필 사용
+                setTimeout(() => {
                     ImageLoader.preloadImages(
                         savedProgress.currentPage,
                         ViewerState.totalPages,
                         ViewerState.images
                     );
-                });
+                }, 100);
             }
         }
         
