@@ -1,4 +1,4 @@
-// js/viewer-all.js - FastBook Viewer 뷰어 페이지 통합 버전 (완전 최적화)
+// js/viewer-all.js - FastBook Viewer 뷰어 페이지 통합 버전 (개선됨)
 console.log('[FastBook Viewer] 뷰어 시작');
 
 if (!window.FastBook) {
@@ -27,7 +27,7 @@ const ViewerState = {
 };
 
 // ============================================
-// LRU 캐시 구현
+// LRU 캐시 구현 (개선 #4: 메모리 누수 방지)
 // ============================================
 class LRUCache {
     constructor(maxSize = 50) {
@@ -59,6 +59,7 @@ class LRUCache {
             const lru = this.accessOrder.shift();
             const oldValue = this.cache.get(lru);
             
+            // 🔧 개선 #4: 메모리 누수 방지
             if (oldValue && oldValue.blobUrl) {
                 URL.revokeObjectURL(oldValue.blobUrl);
             }
@@ -76,6 +77,7 @@ class LRUCache {
     }
     
     clear() {
+        // 🔧 개선 #4: 모든 blob URL 정리
         this.cache.forEach((value) => {
             if (value && value.blobUrl) {
                 URL.revokeObjectURL(value.blobUrl);
@@ -211,7 +213,7 @@ const ViewerStorage = (() => {
 })();
 
 // ============================================
-// 최적화된 Image Loader 모듈
+// 최적화된 Image Loader 모듈 (개선 #4: 메모리 누수 방지)
 // ============================================
 const ImageLoader = (() => {
     const imageCache = new LRUCache(50);
@@ -230,6 +232,7 @@ const ImageLoader = (() => {
         return 'low';
     }
     
+    // 🔧 개선 #4: 에러 발생 시에도 blob URL 정리
     async function fetchImageAsBlob(fileId) {
         const token = localStorage.getItem('access_token');
         
@@ -249,6 +252,8 @@ const ImageLoader = (() => {
         concurrentLoads++;
         
         const loadPromise = (async () => {
+            let blobUrl = null; // 🔧 추적을 위해 외부에 선언
+            
             try {
                 const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
                 
@@ -269,12 +274,19 @@ const ImageLoader = (() => {
                 }
                 
                 const blob = await response.blob();
-                const blobUrl = URL.createObjectURL(blob);
+                blobUrl = URL.createObjectURL(blob);
                 
                 await validateImage(blobUrl);
                 
                 return blobUrl;
                 
+            } catch (error) {
+                // 🔧 개선 #4: 에러 발생 시 생성된 blobUrl 정리
+                if (blobUrl) {
+                    URL.revokeObjectURL(blobUrl);
+                    log.debug(`[메모리 정리] 에러로 인한 blob URL 해제: ${fileId}`);
+                }
+                throw error;
             } finally {
                 concurrentLoads--;
                 loadingQueue.delete(fileId);
@@ -854,43 +866,41 @@ const EventHandlers = (() => {
         });
     }
     
+    // 🔧 개선 #2: 뒤로가기 버튼 동기 처리
     function setupMouseEvents(elements) {
-        // 뒤로가기 버튼 - 최적화된 버전
+        // 뒤로가기 버튼 - 동기 저장으로 개선
         elements.backBtn.addEventListener('click', (e) => {
             e.preventDefault();
             
-            // 현재 진행률 저장
+            // 🔧 개선 #2: 즉시 동기 저장
             if (ViewerState.currentBook) {
+                const progressData = {
+                    bookId: ViewerState.currentBook.id,
+                    currentPage: ViewerState.currentPage,
+                    totalPages: ViewerState.totalPages,
+                    percentage: Math.round((ViewerState.currentPage / ViewerState.totalPages) * 100),
+                    lastRead: new Date().toISOString()
+                };
+                
+                // SessionStorage는 동기이므로 확실히 저장됨
+                sessionStorage.setItem(
+                    `book_progress_${ViewerState.currentBook.id}`, 
+                    JSON.stringify(progressData)
+                );
+                sessionStorage.setItem('lastOpenedBook', ViewerState.currentBook.id);
+                
+                log.info('진행률 동기 저장 완료:', progressData);
+                
+                // IndexedDB는 백그라운드에서 (실패해도 SessionStorage가 있음)
                 ViewerStorage.saveProgress(
                     ViewerState.currentBook.id,
                     ViewerState.currentPage,
                     ViewerState.totalPages
-                ).then(() => {
-                    // 진행률을 SessionStorage에도 저장 (즉시 반영용)
-                    const progressData = {
-                        currentPage: ViewerState.currentPage,
-                        totalPages: ViewerState.totalPages,
-                        percentage: Math.round((ViewerState.currentPage / ViewerState.totalPages) * 100),
-                        lastRead: new Date().toISOString()
-                    };
-                    sessionStorage.setItem(
-                        `book_progress_${ViewerState.currentBook.id}`, 
-                        JSON.stringify(progressData)
-                    );
-                    
-                    // 마지막 읽은 책 표시
-                    sessionStorage.setItem('lastOpenedBook', ViewerState.currentBook.id);
-                    
-                    // 목록 페이지로 이동
-                    window.location.href = 'index.html';
-                }).catch(err => {
-                    log.error('진행률 저장 실패:', err);
-                    // 실패해도 목록으로 이동
-                    window.location.href = 'index.html';
-                });
-            } else {
-                window.location.href = 'index.html';
+                ).catch(err => log.error('DB 저장 실패 (무시됨):', err));
             }
+            
+            // 바로 이동
+            window.location.href = 'index.html';
         });
         
         elements.fullscreenBtn.addEventListener('click', UIController.toggleFullscreen);
@@ -1038,22 +1048,26 @@ const EventHandlers = (() => {
 })();
 
 // ============================================
-// 브라우저 뒤로가기 처리
+// 브라우저 뒤로가기 처리 (개선 #2)
 // ============================================
 window.addEventListener('popstate', (e) => {
-    // 진행률 저장
+    // 🔧 개선 #2: 동기 저장으로 확실하게 저장
     if (ViewerState.currentBook) {
         const progressData = {
+            bookId: ViewerState.currentBook.id,
             currentPage: ViewerState.currentPage,
             totalPages: ViewerState.totalPages,
             percentage: Math.round((ViewerState.currentPage / ViewerState.totalPages) * 100),
             lastRead: new Date().toISOString()
         };
+        
         sessionStorage.setItem(
             `book_progress_${ViewerState.currentBook.id}`, 
             JSON.stringify(progressData)
         );
         sessionStorage.setItem('lastOpenedBook', ViewerState.currentBook.id);
+        
+        log.info('뒤로가기 시 진행률 저장:', progressData);
     }
 });
 
@@ -1166,12 +1180,13 @@ async function initializeViewer() {
 }
 
 // ============================================
-// 페이지 언로드 시 정리
+// 페이지 언로드 시 정리 (개선 #2, #4)
 // ============================================
 window.addEventListener('beforeunload', () => {
-    // 현재 진행률 저장
+    // 🔧 개선 #2: 동기 저장으로 확실하게 저장
     if (ViewerState.currentBook) {
         const progressData = {
+            bookId: ViewerState.currentBook.id,
             currentPage: ViewerState.currentPage,
             totalPages: ViewerState.totalPages,
             percentage: Math.round((ViewerState.currentPage / ViewerState.totalPages) * 100),
@@ -1190,8 +1205,11 @@ window.addEventListener('beforeunload', () => {
             ViewerState.currentPage,
             ViewerState.totalPages
         );
+        
+        log.info('언로드 시 진행률 저장:', progressData);
     }
     
+    // 🔧 개선 #4: 모든 blob URL 정리
     ImageLoader.clearCache();
     
     if (CONFIG.DEBUG) {
