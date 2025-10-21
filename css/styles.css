@@ -89,10 +89,9 @@ html, body {
     background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
     color: white;
     box-shadow: var(--shadow-md);
-    position: sticky;
+    position: relative;
     top: 0;
     z-index: 100;
-    backdrop-filter: blur(10px);
 }
 
 .header-content {
