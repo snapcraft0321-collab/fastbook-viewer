@@ -221,6 +221,27 @@ class EventEmitter {
 
 const eventBus = new EventEmitter();
 
+// requestIdleCallback 폴리필 (Safari 등에서 미지원)
+if (!window.requestIdleCallback) {
+    window.requestIdleCallback = function(callback, options) {
+        const start = Date.now();
+        return setTimeout(function() {
+            callback({
+                didTimeout: false,
+                timeRemaining: function() {
+                    return Math.max(0, 50 - (Date.now() - start));
+                }
+            });
+        }, 1);
+    };
+}
+
+if (!window.cancelIdleCallback) {
+    window.cancelIdleCallback = function(id) {
+        clearTimeout(id);
+    };
+}
+
 // 전역 객체로 export - window 객체가 없으면 생성
 if (typeof window.FastBook === 'undefined') {
     window.FastBook = {};
