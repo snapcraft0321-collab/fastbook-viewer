@@ -1,4 +1,4 @@
-// js/fastbook-all.js - FastBook Viewer 메인 페이지 통합 버전 (캐싱 최적화)
+// js/fastbook-all.js - FastBook Viewer 메인 페이지 통합 버전 (개선됨)
 console.log('[FastBook] 통합 버전 시작');
 
 // FastBook 전역 객체 확인
@@ -37,7 +37,15 @@ const BooksCache = (() => {
                 return null;
             }
             
-            const age = Date.now() - parseInt(timestamp);
+            // 🔧 개선 #6: 타임스탬프 유효성 검증 추가
+            const parsedTimestamp = parseInt(timestamp);
+            if (isNaN(parsedTimestamp) || parsedTimestamp > Date.now()) {
+                log.warn('잘못된 캐시 타임스탬프');
+                clearCache();
+                return null;
+            }
+            
+            const age = Date.now() - parsedTimestamp;
             if (age > CACHE_DURATION) {
                 log.info('캐시 만료됨');
                 clearCache();
@@ -45,10 +53,19 @@ const BooksCache = (() => {
             }
             
             const books = JSON.parse(cached);
+            
+            // 🔧 개선 #6: 캐시 데이터 유효성 검증
+            if (!Array.isArray(books)) {
+                log.warn('잘못된 캐시 데이터 형식');
+                clearCache();
+                return null;
+            }
+            
             log.info('캐시에서 책 목록 로드:', books.length + '권');
             return books;
         } catch (error) {
             log.error('캐시 로드 실패:', error);
+            clearCache();
             return null;
         }
     }
@@ -83,7 +100,7 @@ const BooksCache = (() => {
 })();
 
 // ============================================
-// Token Manager 모듈 (토큰 자동 갱신)
+// Token Manager 모듈 (개선 #1: 무한 루프 방지)
 // ============================================
 const TokenManager = (() => {
     let tokenClient = null;
@@ -222,7 +239,13 @@ const TokenManager = (() => {
         return false;
     }
     
-    async function makeAuthenticatedRequest(requestFn) {
+    // 🔧 개선 #1: 무한 루프 방지를 위한 재시도 카운트 추가
+    async function makeAuthenticatedRequest(requestFn, retryCount = 0) {
+        // 최대 1번까지만 재시도 (무한 루프 방지)
+        if (retryCount > 1) {
+            throw new Error('토큰 갱신 재시도 횟수 초과');
+        }
+        
         if (!isTokenValid()) {
             log.info('토큰이 유효하지 않음, 갱신 시도');
             const refreshed = await refreshToken();
@@ -235,12 +258,14 @@ const TokenManager = (() => {
         try {
             return await requestFn();
         } catch (error) {
-            if (error.status === 401 || error.message.includes('401')) {
-                log.info('401 에러 감지, 토큰 갱신 후 재시도');
+            // 401 에러이고 첫 시도인 경우에만 재시도
+            if ((error.status === 401 || error.message.includes('401')) && retryCount === 0) {
+                log.info('401 에러 감지, 토큰 갱신 후 재시도 (시도 횟수: ' + (retryCount + 1) + ')');
                 
                 const refreshed = await refreshToken();
                 if (refreshed) {
-                    return await requestFn();
+                    // 재귀 호출 시 retryCount 증가
+                    return await makeAuthenticatedRequest(requestFn, retryCount + 1);
                 }
             }
             
@@ -356,7 +381,7 @@ const Storage = (() => {
 })();
 
 // ============================================
-// Auth 모듈 (Google OAuth) - 토큰 매니저 통합
+// Auth 모듈 (개선 #3: 사용자 정보 캐싱)
 // ============================================
 const Auth = (() => {
     let tokenClient = null;
@@ -434,6 +459,9 @@ const Auth = (() => {
         TokenManager.clearToken();
         BooksCache.clear();
         
+        // 🔧 개선 #3: 사용자 정보 캐시도 삭제
+        sessionStorage.removeItem('user_info');
+        
         updateAuthUI(false);
     }
     
@@ -445,7 +473,7 @@ const Auth = (() => {
 })();
 
 // ============================================
-// DriveAPI 모듈 - 토큰 자동 갱신 통합
+// DriveAPI 모듈
 // ============================================
 const DriveAPI = (() => {
     
@@ -473,7 +501,7 @@ const DriveAPI = (() => {
                 q: `'${booksFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
                 fields: 'files(id, name, modifiedTime)',
                 orderBy: 'name',
-                pageSize: 100
+                pageSize: 300
             });
             
             log.info(`${response.result.files.length}개의 책 폴더 발견`);
@@ -522,6 +550,9 @@ const DriveAPI = (() => {
 // UI 관련 함수들
 // ============================================
 let elements = {};
+let allBooks = []; // 전체 책 목록 저장
+let filteredBooks = []; // 필터링된 책 목록
+let currentSort = 'recent'; // 현재 정렬 방식
 
 function initializeElements() {
     elements = {
@@ -538,7 +569,15 @@ function initializeElements() {
         errorState: document.getElementById('errorState'),
         errorMessage: document.getElementById('errorMessage'),
         retryBtn: document.getElementById('retryBtn'),
-        errorRetryBtn: document.getElementById('errorRetryBtn')
+        errorRetryBtn: document.getElementById('errorRetryBtn'),
+        // 검색 관련 요소
+        searchInput: document.getElementById('searchInput'),
+        searchClear: document.getElementById('searchClear'),
+        searchStats: document.getElementById('searchStats'),
+        searchStatsText: document.getElementById('searchStatsText'),
+        noSearchResults: document.getElementById('noSearchResults'),
+        noSearchResultsText: document.getElementById('noSearchResultsText'),
+        clearSearchBtn: document.getElementById('clearSearchBtn')
     };
 }
 
@@ -561,6 +600,7 @@ function updateUIState(state) {
     elements.booksGrid.style.display = 'none';
     elements.emptyState.style.display = 'none';
     elements.errorState.style.display = 'none';
+    elements.noSearchResults.style.display = 'none';
     
     switch (state) {
         case 'loading':
@@ -576,6 +616,63 @@ function updateUIState(state) {
         case 'error':
             elements.errorState.style.display = 'flex';
             break;
+        case 'no-search-results':
+            elements.noSearchResults.style.display = 'flex';
+            break;
+    }
+}
+
+// ============================================
+// 검색 기능
+// ============================================
+function highlightText(text, query) {
+    if (!query) return text;
+    
+    const regex = new RegExp(`(${query})`, 'gi');
+    return text.replace(regex, '<mark>$1</mark>');
+}
+
+function searchBooks(query) {
+    if (!query || query.trim() === '') {
+        filteredBooks = allBooks;
+        updateSearchStats(false);
+        return filteredBooks;
+    }
+    
+    const searchTerm = query.toLowerCase().trim();
+    filteredBooks = allBooks.filter(book => 
+        book.title.toLowerCase().includes(searchTerm)
+    );
+    
+    updateSearchStats(true, query);
+    return filteredBooks;
+}
+
+function updateSearchStats(isSearching, query = '') {
+    if (!isSearching) {
+        elements.searchStats.style.display = 'none';
+        elements.noSearchResultsText.textContent = '다른 검색어를 입력해보세요.';
+        return;
+    }
+    
+    const count = filteredBooks.length;
+    elements.searchStats.style.display = 'flex';
+    elements.searchStatsText.innerHTML = `"<span class="search-stats-number">${query}</span>" 검색 결과: <span class="search-stats-number">${count}</span>권`;
+    
+    if (count === 0) {
+        elements.noSearchResultsText.textContent = `"${query}"에 대한 검색 결과가 없습니다.`;
+    }
+}
+
+function clearSearch() {
+    elements.searchInput.value = '';
+    elements.searchClear.classList.remove('visible');
+    filteredBooks = allBooks;
+    displayBooks(filteredBooks);
+    updateSearchStats(false);
+    
+    if (filteredBooks.length > 0) {
+        updateUIState('books');
     }
 }
 
@@ -642,12 +739,15 @@ async function loadBooks(forceRefresh = false) {
         
         const books = (await Promise.all(bookPromises)).filter(book => book !== null);
         
+        // 전역 변수에 저장
+        allBooks = books;
+        filteredBooks = books;
+        
         // 캐시에 저장
         BooksCache.save(books);
         
         // 화면에 표시
         displayBooks(books);
-        updateUIState('books');
         
     } catch (error) {
         log.error('책 목록 로드 실패:', error);
@@ -664,16 +764,29 @@ async function loadBooks(forceRefresh = false) {
 function displayBooks(books) {
     elements.booksGrid.innerHTML = '';
     
+    if (books.length === 0) {
+        const query = elements.searchInput.value.trim();
+        if (query) {
+            updateUIState('no-search-results');
+        } else {
+            updateUIState('empty');
+        }
+        return;
+    }
+    
     const sortedBooks = sortBooks(books);
+    const searchQuery = elements.searchInput.value.trim();
     
     for (const book of sortedBooks) {
-        const bookCard = createBookCard(book);
+        const bookCard = createBookCard(book, searchQuery);
         elements.booksGrid.appendChild(bookCard);
     }
     
+    updateUIState('books');
+    
     log.info(`${books.length}권의 책 표시 완료`);
     
-    // 마지막 읽은 책 하이라이트 (선택사항)
+    // 마지막 읽은 책 하이라이트
     const lastOpenedBook = sessionStorage.getItem('lastOpenedBook');
     if (lastOpenedBook) {
         updateBookProgress(lastOpenedBook);
@@ -681,13 +794,16 @@ function displayBooks(books) {
     }
 }
 
-function createBookCard(book) {
+function createBookCard(book, searchQuery = '') {
     const card = document.createElement('div');
     card.className = 'book-card';
     card.dataset.bookId = book.id;
     
     const progressPercentage = book.progress ? 
         Math.round((book.progress.currentPage / book.progress.totalPages) * 100) : 0;
+    
+    // 검색어 하이라이트
+    const highlightedTitle = searchQuery ? highlightText(book.title, searchQuery) : book.title;
     
     card.innerHTML = `
         <div class="book-cover">
@@ -697,7 +813,7 @@ function createBookCard(book) {
             ` : ''}
         </div>
         <div class="book-info">
-            <div class="book-title">${book.title}</div>
+            <div class="book-title">${highlightedTitle}</div>
             <div class="book-meta">
                 <div class="book-pages">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -733,7 +849,7 @@ function createBookCard(book) {
 }
 
 function sortBooks(books) {
-    const sortOption = localStorage.getItem('bookSortOption') || 'recent';
+    const sortOption = currentSort;
     
     switch (sortOption) {
         case 'recent':
@@ -905,23 +1021,47 @@ function showCacheIndicator() {
 }
 
 // ============================================
-// 인증 성공 후 처리
+// 인증 성공 후 처리 (개선 #3: 사용자 정보 캐싱)
 // ============================================
 async function onAuthSuccess() {
     updateAuthUI(true);
     
-    try {
-        const response = await TokenManager.makeAuthenticatedRequest(async () => {
-            return await gapi.client.drive.about.get({
-                fields: 'user(displayName,emailAddress)'
-            });
-        });
-        
-        if (elements.userEmail && response.result.user) {
-            elements.userEmail.textContent = response.result.user.emailAddress;
+    // 🔧 개선 #3: 캐시 확인 후 필요시에만 API 호출
+    const cachedUser = sessionStorage.getItem('user_info');
+    if (cachedUser) {
+        try {
+            const userInfo = JSON.parse(cachedUser);
+            if (elements.userEmail && userInfo.emailAddress) {
+                elements.userEmail.textContent = userInfo.emailAddress;
+                log.info('캐시된 사용자 정보 사용:', userInfo.emailAddress);
+            }
+        } catch (error) {
+            log.error('캐시된 사용자 정보 파싱 실패:', error);
+            sessionStorage.removeItem('user_info');
         }
-    } catch (error) {
-        log.error('사용자 정보 가져오기 실패:', error);
+    }
+    
+    // 캐시가 없거나 유효하지 않은 경우에만 API 호출
+    if (!cachedUser) {
+        try {
+            const response = await TokenManager.makeAuthenticatedRequest(async () => {
+                return await gapi.client.drive.about.get({
+                    fields: 'user(displayName,emailAddress)'
+                });
+            });
+            
+            if (response.result.user) {
+                // 캐시에 저장
+                sessionStorage.setItem('user_info', JSON.stringify(response.result.user));
+                
+                if (elements.userEmail) {
+                    elements.userEmail.textContent = response.result.user.emailAddress;
+                }
+                log.info('사용자 정보 API 호출 및 캐시 저장 완료');
+            }
+        } catch (error) {
+            log.error('사용자 정보 가져오기 실패:', error);
+        }
     }
     
     await loadBooks(false);
@@ -954,6 +1094,38 @@ function setupEventListeners() {
         elements.errorRetryBtn.addEventListener('click', () => loadBooks(true));
     }
     
+    // 검색 이벤트
+    if (elements.searchInput) {
+        elements.searchInput.addEventListener('input', (e) => {
+            const query = e.target.value;
+            
+            // X 버튼 표시/숨김
+            if (query) {
+                elements.searchClear.classList.add('visible');
+            } else {
+                elements.searchClear.classList.remove('visible');
+            }
+            
+            // 디바운싱된 검색 실행
+            clearTimeout(window.searchTimeout);
+            window.searchTimeout = setTimeout(() => {
+                const results = searchBooks(query);
+                displayBooks(results);
+            }, 300);
+        });
+    }
+    
+    if (elements.searchClear) {
+        elements.searchClear.addEventListener('click', clearSearch);
+    }
+    
+    if (elements.clearSearchBtn) {
+        elements.clearSearchBtn.addEventListener('click', clearSearch);
+    }
+    
+    // 정렬 필터 이벤트 설정
+    setupSortFilters();
+    
     // 페이지 포커스 시 진행률 업데이트
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
@@ -963,6 +1135,40 @@ function setupEventListeners() {
                 sessionStorage.removeItem('lastOpenedBook');
             }
         }
+    });
+}
+
+// 정렬 필터 초기화 및 이벤트 설정
+function setupSortFilters() {
+    // 저장된 정렬 옵션 불러오기
+    const savedSort = localStorage.getItem('bookSortOption') || 'recent';
+    currentSort = savedSort;
+    
+    const filterChips = document.querySelectorAll('.filter-chip');
+    
+    // 초기 활성 상태 설정
+    filterChips.forEach(chip => {
+        if (chip.dataset.sort === currentSort) {
+            chip.classList.add('active');
+        } else {
+            chip.classList.remove('active');
+        }
+        
+        // 클릭 이벤트 등록
+        chip.addEventListener('click', () => {
+            // 활성 상태 변경
+            filterChips.forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            
+            // 정렬 옵션 변경
+            currentSort = chip.dataset.sort;
+            localStorage.setItem('bookSortOption', currentSort);
+            
+            log.info(`정렬 방식 변경: ${currentSort}`);
+            
+            // 현재 표시된 책 목록 재정렬
+            displayBooks(filteredBooks);
+        });
     });
 }
 
@@ -993,7 +1199,7 @@ function loadGoogleAPIScripts() {
 }
 
 // ============================================
-// Google API 로드 대기 (타임아웃 추가)
+// Google API 로드 대기
 // ============================================
 async function waitForGoogleAPIs(maxAttempts = 30) {
     for (let i = 0; i < maxAttempts; i++) {
@@ -1033,6 +1239,7 @@ async function initializeApp() {
         
         await Auth.initialize();
         
+        // 이벤트 리스너는 초기화 단계에서 설정
         setupEventListeners();
         
         if (Auth.checkAuth()) {
