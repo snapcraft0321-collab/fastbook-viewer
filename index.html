@@ -6,8 +6,7 @@
     <title>FastBook Viewer - 개인 웹북 뷰어</title>
     <link rel="icon" href="data:,">
     <link rel="stylesheet" href="css/styles.css">
-    <!-- <link rel="manifest" href="manifest.json"> -->
-    <meta name="theme-color" content="#1a1a1a">
+    <meta name="theme-color" content="#667eea">
 </head>
 <body>
     <div id="app">
@@ -58,6 +57,64 @@
 
             <!-- 책 목록 섹션 -->
             <div id="booksSection" class="books-section" style="display:none;">
+                <!-- 검색 영역 -->
+                <div class="search-section">
+                    <div class="search-container">
+                        <div class="search-box">
+                            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"/>
+                                <path d="m21 21-4.35-4.35"/>
+                            </svg>
+                            <input 
+                                type="text" 
+                                class="search-input" 
+                                id="searchInput" 
+                                placeholder="책 제목을 검색하세요..."
+                                autocomplete="off"
+                            />
+                            <button class="search-clear" id="searchClear" title="검색어 지우기">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="18" y1="6" x2="6" y2="18"/>
+                                    <line x1="6" y1="6" x2="18" y2="18"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="search-stats" id="searchStats" style="display:none;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/>
+                            </svg>
+                            <span id="searchStatsText">검색 결과: <span class="search-stats-number">0</span>권</span>
+                        </div>
+                    </div>
+                    
+                    <!-- 정렬 필터 -->
+                    <div class="search-filters">
+                        <button class="filter-chip active" data-sort="recent">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <polyline points="12 6 12 12 16 14"/>
+                            </svg>
+                            최근 읽음
+                        </button>
+                        <button class="filter-chip" data-sort="name">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="4" y1="9" x2="20" y2="9"/>
+                                <line x1="4" y1="15" x2="20" y2="15"/>
+                                <line x1="10" y1="3" x2="8" y2="21"/>
+                                <line x1="16" y1="3" x2="14" y2="21"/>
+                            </svg>
+                            제목순
+                        </button>
+                        <button class="filter-chip" data-sort="progress">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                <polyline points="22 4 12 14.01 9 11.01"/>
+                            </svg>
+                            진행률순
+                        </button>
+                    </div>
+                </div>
+                
                 <!-- 로딩 상태 -->
                 <div id="loadingState" class="loading-state">
                     <div class="spinner"></div>
@@ -91,11 +148,22 @@
                     <p id="errorMessage">책 목록을 불러올 수 없습니다.</p>
                     <button id="errorRetryBtn" class="btn-secondary">다시 시도</button>
                 </div>
+                
+                <!-- 검색 결과 없음 상태 -->
+                <div id="noSearchResults" class="empty-state" style="display:none;">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="11" cy="11" r="8"/>
+                        <path d="m21 21-4.35-4.35"/>
+                    </svg>
+                    <h3>검색 결과가 없습니다</h3>
+                    <p id="noSearchResultsText">다른 검색어를 입력해보세요.</p>
+                    <button id="clearSearchBtn" class="btn-secondary">검색 초기화</button>
+                </div>
             </div>
         </main>
     </div>
 
-    <!-- 스크립트 로드 - 통합 버전 사용 -->
+    <!-- 스크립트 로드 -->
     <script src="js/config.js"></script>
     <script src="js/fastbook-all.js"></script>
 </body>
