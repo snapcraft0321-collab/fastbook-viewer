@@ -107,6 +107,7 @@ const TokenManager = (() => {
     let accessToken = null;
     let tokenExpiryTime = null;
     let refreshTimer = null;
+    let isAutoLoginAttempted = false; // 자동 로그인 시도 여부
     
     function calculateExpiryTime() {
         return Date.now() + (55 * 60 * 1000);
@@ -122,6 +123,12 @@ const TokenManager = (() => {
         
         localStorage.setItem('access_token', token);
         localStorage.setItem('token_expiry', tokenExpiryTime.toString());
+        
+        // 자동 로그인 활성화 시 remember me 플래그 저장
+        const rememberMe = localStorage.getItem('remember_me') === 'true';
+        if (rememberMe) {
+            localStorage.setItem('last_login', Date.now().toString());
+        }
         
         if (window.gapi && window.gapi.client) {
             gapi.client.setToken({ access_token: token });
@@ -191,10 +198,18 @@ const TokenManager = (() => {
         
         clearToken();
         
-        if (confirm('세션이 만료되었습니다. 다시 로그인하시겠습니까?')) {
+        // 자동 로그인이 활성화되어 있으면 자동 재로그인 시도
+        const rememberMe = localStorage.getItem('remember_me') === 'true';
+        if (rememberMe && !isAutoLoginAttempted) {
+            log.info('자동 로그인 시도');
+            isAutoLoginAttempted = true;
             Auth.signIn();
         } else {
-            window.location.href = 'index.html';
+            if (confirm('세션이 만료되었습니다. 다시 로그인하시겠습니까?')) {
+                Auth.signIn();
+            } else {
+                window.location.href = 'index.html';
+            }
         }
     }
     
@@ -209,6 +224,12 @@ const TokenManager = (() => {
         
         localStorage.removeItem('access_token');
         localStorage.removeItem('token_expiry');
+        
+        // 자동 로그인이 꺼져있으면 remember_me도 제거
+        const rememberMe = localStorage.getItem('remember_me') === 'true';
+        if (!rememberMe) {
+            localStorage.removeItem('last_login');
+        }
     }
     
     function restoreToken() {
@@ -232,11 +253,55 @@ const TokenManager = (() => {
                 return true;
             } else {
                 log.info('저장된 토큰이 만료됨');
-                clearToken();
+                
+                // 자동 로그인이 활성화되어 있으면 자동 갱신 시도
+                const rememberMe = localStorage.getItem('remember_me') === 'true';
+                if (rememberMe) {
+                    log.info('자동 로그인: 토큰 갱신 시도');
+                    // 토큰이 만료되었지만 자동 로그인이 켜져있으면 갱신 시도
+                    setTimeout(() => {
+                        if (tokenClient) {
+                            refreshToken();
+                        }
+                    }, 100);
+                    return false;
+                } else {
+                    clearToken();
+                }
             }
         }
         
         return false;
+    }
+    
+    // 자동 로그인 관련 함수들
+    function enableAutoLogin() {
+        localStorage.setItem('remember_me', 'true');
+        localStorage.setItem('last_login', Date.now().toString());
+        log.info('자동 로그인 활성화');
+    }
+    
+    function disableAutoLogin() {
+        localStorage.removeItem('remember_me');
+        localStorage.removeItem('last_login');
+        log.info('자동 로그인 비활성화');
+    }
+    
+    function isAutoLoginEnabled() {
+        return localStorage.getItem('remember_me') === 'true';
+    }
+    
+    function getLastLoginTime() {
+        const lastLogin = localStorage.getItem('last_login');
+        if (lastLogin) {
+            return new Date(parseInt(lastLogin));
+        }
+        return null;
+    }
+    
+    // 자동 로그인 시도 플래그 리셋
+    function resetAutoLoginAttempt() {
+        isAutoLoginAttempted = false;
     }
     
     // 🔧 개선 #1: 무한 루프 방지를 위한 재시도 카운트 추가
@@ -281,7 +346,12 @@ const TokenManager = (() => {
         isTokenValid,
         makeAuthenticatedRequest,
         setTokenClient: (client) => { tokenClient = client; },
-        getAccessToken: () => accessToken
+        getAccessToken: () => accessToken,
+        enableAutoLogin,
+        disableAutoLogin,
+        isAutoLoginEnabled,
+        getLastLoginTime,
+        resetAutoLoginAttempt
     };
 })();
 
@@ -428,12 +498,14 @@ const Auth = (() => {
         if (response.error) {
             log.error('인증 실패:', response);
             alert('로그인에 실패했습니다: ' + response.error);
+            TokenManager.resetAutoLoginAttempt();
             return;
         }
         
         log.info('인증 성공');
         
         TokenManager.saveToken(response.access_token);
+        TokenManager.resetAutoLoginAttempt();
         
         onAuthSuccess();
     }
@@ -444,7 +516,11 @@ const Auth = (() => {
             return;
         }
         
-        tokenClient.requestAccessToken({ prompt: 'consent' });
+        // 자동 로그인 시도가 아닌 수동 로그인이면 prompt 표시
+        const isAutoLogin = TokenManager.isAutoLoginEnabled();
+        tokenClient.requestAccessToken({ 
+            prompt: isAutoLogin ? '' : 'consent'
+        });
     }
     
     function signOut() {
@@ -457,6 +533,7 @@ const Auth = (() => {
         }
         
         TokenManager.clearToken();
+        TokenManager.disableAutoLogin(); // 로그아웃 시 자동 로그인도 해제
         BooksCache.clear();
         
         // 🔧 개선 #3: 사용자 정보 캐시도 삭제
@@ -469,7 +546,26 @@ const Auth = (() => {
         return TokenManager.restoreToken();
     }
     
-    return { initialize, signIn, signOut, checkAuth };
+    // 자동 로그인 토글
+    function toggleAutoLogin(enabled) {
+        if (enabled) {
+            TokenManager.enableAutoLogin();
+            log.info('자동 로그인 활성화됨');
+        } else {
+            TokenManager.disableAutoLogin();
+            log.info('자동 로그인 비활성화됨');
+        }
+    }
+    
+    return { 
+        initialize, 
+        signIn, 
+        signOut, 
+        checkAuth,
+        toggleAutoLogin,
+        isAutoLoginEnabled: () => TokenManager.isAutoLoginEnabled(),
+        getLastLoginTime: () => TokenManager.getLastLoginTime()
+    };
 })();
 
 // ============================================
@@ -1072,7 +1168,33 @@ async function onAuthSuccess() {
 // ============================================
 function setupEventListeners() {
     if (elements.signInBtn) {
-        elements.signInBtn.addEventListener('click', () => Auth.signIn());
+        elements.signInBtn.addEventListener('click', () => {
+            // 자동 로그인 체크박스 상태 확인 및 저장
+            const rememberMeCheckbox = document.getElementById('rememberMeCheckbox');
+            if (rememberMeCheckbox) {
+                if (rememberMeCheckbox.checked) {
+                    TokenManager.enableAutoLogin();
+                } else {
+                    TokenManager.disableAutoLogin();
+                }
+            }
+            Auth.signIn();
+        });
+    }
+    
+    // 자동 로그인 체크박스 초기 상태 설정
+    const rememberMeCheckbox = document.getElementById('rememberMeCheckbox');
+    if (rememberMeCheckbox) {
+        rememberMeCheckbox.checked = TokenManager.isAutoLoginEnabled();
+        
+        // 체크박스 변경 시 즉시 저장
+        rememberMeCheckbox.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                log.info('자동 로그인 활성화 선택');
+            } else {
+                log.info('자동 로그인 비활성화 선택');
+            }
+        });
     }
     
     if (elements.signOutBtn) {
