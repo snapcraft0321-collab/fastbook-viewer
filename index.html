@@ -35,6 +35,19 @@
                 <div class="auth-card">
                     <h2>Google Drive 연결</h2>
                     <p>책을 읽기 위해 Google Drive 접근 권한이 필요합니다.</p>
+                    
+                    <!-- 자동 로그인 옵션 -->
+                    <div class="auto-login-option">
+                        <label class="checkbox-container">
+                            <input type="checkbox" id="rememberMeCheckbox" checked>
+                            <span class="checkmark"></span>
+                            <span class="checkbox-label">자동 로그인 (이 기기에서 로그인 유지)</span>
+                        </label>
+                        <p class="auto-login-description">
+                            체크 시 다음 방문 때 자동으로 로그인됩니다.
+                        </p>
+                    </div>
+                    
                     <button id="signInBtn" class="btn-primary">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -44,6 +57,7 @@
                         </svg>
                         Google로 로그인
                     </button>
+                    
                     <div class="auth-info">
                         <h3>필요한 권한</h3>
                         <ul>
