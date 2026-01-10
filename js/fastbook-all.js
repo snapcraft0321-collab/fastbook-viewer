@@ -1137,6 +1137,15 @@ const LazyImageLoader = (() => {
                 return;
             }
 
+            // Google Drive URL인 경우 CORS 문제로 인해 fetch 사용 불가
+            // 직접 img.src에 설정
+            if (src.includes('drive.google.com')) {
+                img.src = src;
+                onImageLoaded(img);
+                loadingImages.delete(img);
+                return;
+            }
+
             // 이미지 로드 (브라우저 캐시 활용)
             const response = await fetch(src, {
                 cache: 'force-cache', // 브라우저 캐시 사용
