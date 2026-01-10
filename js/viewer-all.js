@@ -143,17 +143,42 @@ class AdaptivePreloader {
 const ViewerStorage = (() => {
     let db = null;
 
-    async function initialize() {
+    async function initialize(isRetry = false) {
         return new Promise((resolve, reject) => {
             const request = indexedDB.open(CONFIG.DB_NAME, CONFIG.DB_VERSION);
 
             request.onerror = () => {
                 log.error('IndexedDB 열기 실패:', request.error);
-                reject(request.error);
+
+                // 에러 발생 시 DB 삭제 후 재시도
+                if (!isRetry) {
+                    log.warn('IndexedDB 재생성 시도 중...');
+                    deleteDatabase().then(() => {
+                        initialize(true).then(resolve).catch(reject);
+                    }).catch(reject);
+                } else {
+                    reject(request.error);
+                }
             };
 
             request.onsuccess = () => {
                 db = request.result;
+
+                // DB가 열렸지만 필요한 objectStore가 없는 경우 처리
+                if (!db.objectStoreNames.contains('last_read')) {
+                    log.warn('필요한 objectStore가 없습니다. DB 재생성 중...');
+                    db.close();
+
+                    if (!isRetry) {
+                        deleteDatabase().then(() => {
+                            initialize(true).then(resolve).catch(reject);
+                        }).catch(reject);
+                    } else {
+                        reject(new Error('ObjectStore 생성 실패'));
+                    }
+                    return;
+                }
+
                 log.info('IndexedDB 초기화 완료');
                 resolve(db);
             };
@@ -161,51 +186,109 @@ const ViewerStorage = (() => {
             request.onupgradeneeded = (event) => {
                 db = event.target.result;
 
-                if (!db.objectStoreNames.contains('last_read')) {
-                    db.createObjectStore('last_read', { keyPath: 'bookId' });
+                // 기존 objectStore가 있으면 삭제 후 재생성
+                if (db.objectStoreNames.contains('books')) {
+                    db.deleteObjectStore('books');
+                }
+                if (db.objectStoreNames.contains('last_read')) {
+                    db.deleteObjectStore('last_read');
                 }
 
-                log.info('IndexedDB 스키마 생성 완료');
+                // 새로 생성
+                db.createObjectStore('books', { keyPath: 'id' });
+                db.createObjectStore('last_read', { keyPath: 'bookId' });
+
+                log.info('IndexedDB 스키마 생성 완료 (버전: ' + CONFIG.DB_VERSION + ')');
+            };
+        });
+    }
+
+    async function deleteDatabase() {
+        return new Promise((resolve, reject) => {
+            log.warn('기존 IndexedDB 삭제 중...');
+            const deleteRequest = indexedDB.deleteDatabase(CONFIG.DB_NAME);
+
+            deleteRequest.onsuccess = () => {
+                log.info('IndexedDB 삭제 완료');
+                resolve();
+            };
+
+            deleteRequest.onerror = () => {
+                log.error('IndexedDB 삭제 실패:', deleteRequest.error);
+                reject(deleteRequest.error);
+            };
+
+            deleteRequest.onblocked = () => {
+                log.warn('IndexedDB 삭제가 차단되었습니다. 다른 탭을 닫아주세요.');
+                // 차단되어도 계속 진행
+                resolve();
             };
         });
     }
 
     async function saveLastRead(bookId) {
-        if (!db) return;
+        try {
+            if (!db) return;
 
-        const transaction = db.transaction(['last_read'], 'readwrite');
-        const store = transaction.objectStore('last_read');
+            // objectStore 존재 여부 확인
+            if (!db.objectStoreNames.contains('last_read')) {
+                log.warn('last_read objectStore가 없습니다.');
+                return;
+            }
 
-        const lastReadData = {
-            bookId,
-            lastRead: new Date().toISOString()
-        };
+            const transaction = db.transaction(['last_read'], 'readwrite');
+            const store = transaction.objectStore('last_read');
 
-        return new Promise((resolve, reject) => {
-            const request = store.put(lastReadData);
-            request.onsuccess = () => {
-                sessionStorage.setItem(`book_lastread_${bookId}`, JSON.stringify(lastReadData));
-                log.debug('마지막 읽은 시간 저장됨:', lastReadData);
-                resolve();
+            const lastReadData = {
+                bookId,
+                lastRead: new Date().toISOString()
             };
-            request.onerror = () => reject(request.error);
-        });
+
+            return new Promise((resolve, reject) => {
+                const request = store.put(lastReadData);
+                request.onsuccess = () => {
+                    sessionStorage.setItem(`book_lastread_${bookId}`, JSON.stringify(lastReadData));
+                    log.debug('마지막 읽은 시간 저장됨:', lastReadData);
+                    resolve();
+                };
+                request.onerror = () => {
+                    log.error('saveLastRead 실패:', request.error);
+                    resolve(); // 에러 시 그냥 계속 진행
+                };
+            });
+        } catch (error) {
+            log.error('saveLastRead 예외:', error);
+        }
     }
 
     async function getLastRead(bookId) {
-        if (!db) return null;
+        try {
+            if (!db) return null;
 
-        const transaction = db.transaction(['last_read'], 'readonly');
-        const store = transaction.objectStore('last_read');
+            // objectStore 존재 여부 확인
+            if (!db.objectStoreNames.contains('last_read')) {
+                log.warn('last_read objectStore가 없습니다.');
+                return null;
+            }
 
-        return new Promise((resolve, reject) => {
-            const request = store.get(bookId);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
+            const transaction = db.transaction(['last_read'], 'readonly');
+            const store = transaction.objectStore('last_read');
+
+            return new Promise((resolve, reject) => {
+                const request = store.get(bookId);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => {
+                    log.error('getLastRead 실패:', request.error);
+                    resolve(null);
+                };
+            });
+        } catch (error) {
+            log.error('getLastRead 예외:', error);
+            return null;
+        }
     }
 
-    return { initialize, saveLastRead, getLastRead };
+    return { initialize, saveLastRead, getLastRead, deleteDatabase };
 })();
 
 // ============================================

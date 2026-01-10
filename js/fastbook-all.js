@@ -431,17 +431,42 @@ const TokenManager = (() => {
 const Storage = (() => {
     let db = null;
 
-    async function initialize() {
+    async function initialize(isRetry = false) {
         return new Promise((resolve, reject) => {
             const request = indexedDB.open(CONFIG.DB_NAME, CONFIG.DB_VERSION);
 
             request.onerror = () => {
                 log.error('IndexedDB 열기 실패:', request.error);
-                reject(request.error);
+
+                // 에러 발생 시 DB 삭제 후 재시도
+                if (!isRetry) {
+                    log.warn('IndexedDB 재생성 시도 중...');
+                    deleteDatabase().then(() => {
+                        initialize(true).then(resolve).catch(reject);
+                    }).catch(reject);
+                } else {
+                    reject(request.error);
+                }
             };
 
             request.onsuccess = () => {
                 db = request.result;
+
+                // DB가 열렸지만 필요한 objectStore가 없는 경우 처리
+                if (!db.objectStoreNames.contains('last_read')) {
+                    log.warn('필요한 objectStore가 없습니다. DB 재생성 중...');
+                    db.close();
+
+                    if (!isRetry) {
+                        deleteDatabase().then(() => {
+                            initialize(true).then(resolve).catch(reject);
+                        }).catch(reject);
+                    } else {
+                        reject(new Error('ObjectStore 생성 실패'));
+                    }
+                    return;
+                }
+
                 log.info('IndexedDB 초기화 완료');
                 resolve(db);
             };
@@ -449,48 +474,90 @@ const Storage = (() => {
             request.onupgradeneeded = (event) => {
                 db = event.target.result;
 
-                if (!db.objectStoreNames.contains('books')) {
-                    db.createObjectStore('books', { keyPath: 'id' });
+                // 기존 objectStore가 있으면 삭제 후 재생성
+                if (db.objectStoreNames.contains('books')) {
+                    db.deleteObjectStore('books');
+                }
+                if (db.objectStoreNames.contains('last_read')) {
+                    db.deleteObjectStore('last_read');
                 }
 
-                if (!db.objectStoreNames.contains('last_read')) {
-                    db.createObjectStore('last_read', { keyPath: 'bookId' });
-                }
+                // 새로 생성
+                db.createObjectStore('books', { keyPath: 'id' });
+                db.createObjectStore('last_read', { keyPath: 'bookId' });
 
-                log.info('IndexedDB 스키마 생성 완료');
+                log.info('IndexedDB 스키마 생성 완료 (버전: ' + CONFIG.DB_VERSION + ')');
+            };
+        });
+    }
+
+    async function deleteDatabase() {
+        return new Promise((resolve, reject) => {
+            log.warn('기존 IndexedDB 삭제 중...');
+            const deleteRequest = indexedDB.deleteDatabase(CONFIG.DB_NAME);
+
+            deleteRequest.onsuccess = () => {
+                log.info('IndexedDB 삭제 완료');
+                resolve();
+            };
+
+            deleteRequest.onerror = () => {
+                log.error('IndexedDB 삭제 실패:', deleteRequest.error);
+                reject(deleteRequest.error);
+            };
+
+            deleteRequest.onblocked = () => {
+                log.warn('IndexedDB 삭제가 차단되었습니다. 다른 탭을 닫아주세요.');
+                // 차단되어도 계속 진행
+                resolve();
             };
         });
     }
 
     async function getLastRead(bookId) {
-        // SessionStorage에서 먼저 확인
-        const cached = sessionStorage.getItem(`book_lastread_${bookId}`);
-        if (cached) {
-            return JSON.parse(cached);
+        try {
+            // SessionStorage에서 먼저 확인
+            const cached = sessionStorage.getItem(`book_lastread_${bookId}`);
+            if (cached) {
+                return JSON.parse(cached);
+            }
+
+            if (!db) return null;
+
+            // objectStore 존재 여부 확인
+            if (!db.objectStoreNames.contains('last_read')) {
+                log.warn('last_read objectStore가 없습니다.');
+                return null;
+            }
+
+            const transaction = db.transaction(['last_read'], 'readonly');
+            const store = transaction.objectStore('last_read');
+
+            return new Promise((resolve, reject) => {
+                const request = store.get(bookId);
+                request.onsuccess = () => {
+                    const lastRead = request.result;
+                    if (lastRead) {
+                        sessionStorage.setItem(`book_lastread_${bookId}`, JSON.stringify(lastRead));
+                    }
+                    resolve(lastRead);
+                };
+                request.onerror = () => {
+                    log.error('getLastRead 실패:', request.error);
+                    resolve(null); // 에러 시 null 반환
+                };
+            });
+        } catch (error) {
+            log.error('getLastRead 예외:', error);
+            return null;
         }
-
-        if (!db) return null;
-
-        const transaction = db.transaction(['last_read'], 'readonly');
-        const store = transaction.objectStore('last_read');
-
-        return new Promise((resolve, reject) => {
-            const request = store.get(bookId);
-            request.onsuccess = () => {
-                const lastRead = request.result;
-                if (lastRead) {
-                    sessionStorage.setItem(`book_lastread_${bookId}`, JSON.stringify(lastRead));
-                }
-                resolve(lastRead);
-            };
-            request.onerror = () => reject(request.error);
-        });
     }
 
     return {
         initialize,
         getLastRead,
-        getDB: () => db
+        getDB: () => db,
+        deleteDatabase
     };
 })();
 
@@ -1094,6 +1161,9 @@ async function updateBookLastRead(bookId) {
 const LazyImageLoader = (() => {
     let observer = null;
     const loadingImages = new Set();
+    const retryAttempts = new Map(); // 재시도 횟수 추적
+    const MAX_RETRY = 3;
+    const RETRY_DELAY = 1000; // 1초
 
     function initialize() {
         if ('IntersectionObserver' in window) {
@@ -1107,14 +1177,14 @@ const LazyImageLoader = (() => {
                 },
                 {
                     root: null,
-                    rootMargin: '50px', // 50px 미리 로딩
+                    rootMargin: '100px', // 100px 미리 로딩 (최적화)
                     threshold: 0.01
                 }
             );
         }
     }
 
-    async function loadImage(img) {
+    async function loadImage(img, retryCount = 0) {
         if (loadingImages.has(img) || img.classList.contains('loaded')) {
             return;
         }
@@ -1138,10 +1208,28 @@ const LazyImageLoader = (() => {
             }
 
             // Google Drive URL인 경우 CORS 문제로 인해 fetch 사용 불가
-            // 직접 img.src에 설정
+            // 직접 img.src에 설정하되, 로드 후 캐시에 URL 저장
             if (src.includes('drive.google.com')) {
                 img.src = src;
-                onImageLoaded(img);
+                // 이미지 로드 완료 후 캐시에 저장
+                img.onload = () => {
+                    ImageCache.save(src, src); // 원본 URL을 캐시에 저장
+                    onImageLoaded(img);
+                    retryAttempts.delete(src); // 재시도 카운터 초기화
+                };
+                img.onerror = async () => {
+                    // 재시도 로직
+                    if (retryCount < MAX_RETRY) {
+                        log.warn(`이미지 로드 재시도 (${retryCount + 1}/${MAX_RETRY}):`, src);
+                        loadingImages.delete(img);
+                        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * (retryCount + 1)));
+                        loadImage(img, retryCount + 1);
+                    } else {
+                        log.error(`이미지 로드 최종 실패 (${MAX_RETRY}회 시도):`, src);
+                        onImageError(img);
+                        retryAttempts.delete(src);
+                    }
+                };
                 loadingImages.delete(img);
                 return;
             }
@@ -1166,9 +1254,19 @@ const LazyImageLoader = (() => {
             img.src = blobUrl;
 
             onImageLoaded(img);
+            retryAttempts.delete(src); // 재시도 카운터 초기화
         } catch (error) {
-            log.error('이미지 로드 실패:', src, error);
-            onImageError(img);
+            // 재시도 로직
+            if (retryCount < MAX_RETRY) {
+                log.warn(`이미지 로드 재시도 (${retryCount + 1}/${MAX_RETRY}):`, src, error);
+                loadingImages.delete(img);
+                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * (retryCount + 1)));
+                return loadImage(img, retryCount + 1);
+            } else {
+                log.error(`이미지 로드 최종 실패 (${MAX_RETRY}회 시도):`, src, error);
+                onImageError(img);
+                retryAttempts.delete(src);
+            }
         } finally {
             loadingImages.delete(img);
         }

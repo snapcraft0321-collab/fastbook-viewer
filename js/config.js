@@ -45,7 +45,7 @@ const CONFIG = {
     
     // IndexedDB 설정
     DB_NAME: 'FastBookViewer',
-    DB_VERSION: 1,
+    DB_VERSION: 2, // 버전 업데이트로 기존 DB 스키마 재생성
     
     // Service Worker 설정
     ENABLE_SERVICE_WORKER: false, // 일단 비활성화
