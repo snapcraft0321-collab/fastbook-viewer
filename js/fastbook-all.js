@@ -786,8 +786,6 @@ function initializeElements() {
         // 검색 관련 요소
         searchInput: document.getElementById('searchInput'),
         searchClear: document.getElementById('searchClear'),
-        searchStats: document.getElementById('searchStats'),
-        searchStatsText: document.getElementById('searchStatsText'),
         noSearchResults: document.getElementById('noSearchResults'),
         noSearchResultsText: document.getElementById('noSearchResultsText'),
         clearSearchBtn: document.getElementById('clearSearchBtn')
@@ -848,33 +846,19 @@ function highlightText(text, query) {
 function searchBooks(query) {
     if (!query || query.trim() === '') {
         filteredBooks = allBooks;
-        updateSearchStats(false);
+        elements.noSearchResultsText.textContent = '다른 검색어를 입력해보세요.';
         return filteredBooks;
     }
-    
+
     const searchTerm = query.toLowerCase().trim();
-    filteredBooks = allBooks.filter(book => 
+    filteredBooks = allBooks.filter(book =>
         book.title.toLowerCase().includes(searchTerm)
     );
-    
-    updateSearchStats(true, query);
-    return filteredBooks;
-}
 
-function updateSearchStats(isSearching, query = '') {
-    if (!isSearching) {
-        elements.searchStats.style.display = 'none';
-        elements.noSearchResultsText.textContent = '다른 검색어를 입력해보세요.';
-        return;
-    }
-    
-    const count = filteredBooks.length;
-    elements.searchStats.style.display = 'flex';
-    elements.searchStatsText.innerHTML = `"<span class="search-stats-number">${query}</span>" 검색 결과: <span class="search-stats-number">${count}</span>권`;
-    
-    if (count === 0) {
+    if (filteredBooks.length === 0) {
         elements.noSearchResultsText.textContent = `"${query}"에 대한 검색 결과가 없습니다.`;
     }
+    return filteredBooks;
 }
 
 function clearSearch() {
@@ -882,8 +866,8 @@ function clearSearch() {
     elements.searchClear.classList.remove('visible');
     filteredBooks = allBooks;
     displayBooks(filteredBooks);
-    updateSearchStats(false);
-    
+    elements.noSearchResultsText.textContent = '다른 검색어를 입력해보세요.';
+
     if (filteredBooks.length > 0) {
         updateUIState('books');
     }
@@ -2152,29 +2136,6 @@ function initializeNewFeatures() {
     ThemeManager.initialize();
     NetworkManager.initialize();
 
-    // 독서 통계 버튼
-    const statsBtn = document.getElementById('statsBtn');
-    if (statsBtn) {
-        statsBtn.addEventListener('click', () => ReadingStatsManager.openStatsModal(allBooks));
-    }
-
-    // 통계 모달 닫기
-    const statsModalClose = document.getElementById('statsModalClose');
-    if (statsModalClose) {
-        statsModalClose.addEventListener('click', () => {
-            document.getElementById('statsModal').classList.remove('active');
-        });
-    }
-    const statsModal = document.getElementById('statsModal');
-    if (statsModal) {
-        statsModal.addEventListener('click', (e) => {
-            if (e.target === statsModal) statsModal.classList.remove('active');
-        });
-        statsModal.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') statsModal.classList.remove('active');
-        });
-    }
-
     // 즐겨찾기 필터 - 기존 setupSortFilters와 연동
     // (filter-chip 'favorites' 는 setupSortFilters 에서 처리)
 }
@@ -2217,16 +2178,6 @@ sortBooks = function(books) {
         return [...books].filter(b => favs.includes(b.id));
     }
     return _origSortBooks(books);
-};
-
-// onAuthSuccess 후 새 기능 초기화 훅
-const _origOnAuthSuccess = typeof onAuthSuccess !== 'undefined' ? onAuthSuccess : null;
-// onAuthSuccess는 fastbook-all.js 내부에서 정의됨 - statsBtn 노출 처리
-const _origUpdateAuthUI = updateAuthUI;
-updateAuthUI = function(isAuthenticated) {
-    _origUpdateAuthUI(isAuthenticated);
-    const statsBtn = document.getElementById('statsBtn');
-    if (statsBtn) statsBtn.style.display = isAuthenticated ? 'flex' : 'none';
 };
 
 // displayBooks 이후 최근 섹션 렌더링 훅

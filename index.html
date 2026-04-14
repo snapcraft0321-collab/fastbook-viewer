@@ -17,14 +17,6 @@
             <div class="header-content">
                 <h1 class="app-title">FastBook Viewer</h1>
                 <div class="header-actions">
-                    <!-- 독서 통계 버튼 -->
-                    <button id="statsBtn" class="stats-btn" title="독서 통계" style="display:none;" aria-label="독서 통계 보기">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
-                            <line x1="6" y1="20" x2="6" y2="14"/>
-                        </svg>
-                        통계
-                    </button>
                     <!-- 다크/라이트 토글 -->
                     <button id="themeToggle" class="theme-toggle" title="테마 전환" aria-label="다크/라이트 모드 전환">
                         <svg id="themeIconDark" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
@@ -129,12 +121,7 @@
                                 </svg>
                             </button>
                         </div>
-                        <div class="search-stats" id="searchStats" style="display:none;" aria-live="polite">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                                <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/>
-                            </svg>
-                            <span id="searchStatsText">검색 결과: <span class="search-stats-number">0</span>권</span>
-                        </div>
+
                     </div>
 
                     <!-- 정렬/필터 -->
