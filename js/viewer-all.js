@@ -27,67 +27,52 @@ const ViewerState = {
 };
 
 // ============================================
-// LRU 캐시 구현 (개선 #4: 메모리 누수 방지)
+// LRU 캐시 구현 (O(1) - Map 삽입 순서 활용)
 // ============================================
 class LRUCache {
     constructor(maxSize = 50) {
         this.maxSize = maxSize;
         this.cache = new Map();
-        this.accessOrder = [];
     }
-    
+
     get(key) {
         if (!this.cache.has(key)) return null;
-        
-        const index = this.accessOrder.indexOf(key);
-        if (index > -1) {
-            this.accessOrder.splice(index, 1);
-        }
-        this.accessOrder.push(key);
-        
-        return this.cache.get(key);
+        const value = this.cache.get(key);
+        // 가장 최근 접근으로 갱신: 삭제 후 재삽입
+        this.cache.delete(key);
+        this.cache.set(key, value);
+        return value;
     }
-    
+
     set(key, value) {
         if (this.cache.has(key)) {
-            this.cache.set(key, value);
-            this.get(key);
-            return;
-        }
-        
-        if (this.cache.size >= this.maxSize) {
-            const lru = this.accessOrder.shift();
-            const oldValue = this.cache.get(lru);
-            
-            // 🔧 개선 #4: 메모리 누수 방지
+            this.cache.delete(key);
+        } else if (this.cache.size >= this.maxSize) {
+            // Map의 첫 번째 항목이 가장 오래된 것
+            const lruKey = this.cache.keys().next().value;
+            const oldValue = this.cache.get(lruKey);
             if (oldValue && oldValue.blobUrl) {
                 URL.revokeObjectURL(oldValue.blobUrl);
             }
-            
-            this.cache.delete(lru);
-            log.debug(`[LRU] 캐시에서 제거: ${lru}`);
+            this.cache.delete(lruKey);
+            log.debug(`[LRU] 캐시에서 제거: ${lruKey}`);
         }
-        
         this.cache.set(key, value);
-        this.accessOrder.push(key);
     }
-    
+
     has(key) {
         return this.cache.has(key);
     }
-    
+
     clear() {
-        // 🔧 개선 #4: 모든 blob URL 정리
         this.cache.forEach((value) => {
             if (value && value.blobUrl) {
                 URL.revokeObjectURL(value.blobUrl);
             }
         });
-        
         this.cache.clear();
-        this.accessOrder = [];
     }
-    
+
     size() {
         return this.cache.size;
     }
@@ -301,245 +286,251 @@ const ViewerStorage = (() => {
 })();
 
 // ============================================
-// 최적화된 Image Loader 모듈 (개선 #4: 메모리 누수 방지)
+// Image Loader 모듈
 // ============================================
 const ImageLoader = (() => {
     const imageCache = new LRUCache(50);
+    // key: fileId → Promise<blobUrl> (중복 요청 방지용)
     const loadingQueue = new Map();
+    // key: fileId → AbortController (진행 중 요청 취소용)
+    const abortControllers = new Map();
     const preloader = new AdaptivePreloader();
-    let concurrentLoads = 0;
     let MAX_CONCURRENT = 3;
-    
+
+    // 세마포어: busy-wait 없이 동시 로드 수 제한
+    let semaphoreSlots = MAX_CONCURRENT;
+    const semaphoreQueue = [];
+
+    function acquireSemaphore() {
+        if (semaphoreSlots > 0) {
+            semaphoreSlots--;
+            return Promise.resolve();
+        }
+        return new Promise(resolve => semaphoreQueue.push(resolve));
+    }
+
+    function releaseSemaphore() {
+        if (semaphoreQueue.length > 0) {
+            semaphoreQueue.shift()();
+        } else {
+            semaphoreSlots++;
+        }
+    }
+
     function getNetworkQuality() {
         const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
         if (!connection) return 'unknown';
-        
         if (connection.saveData) return 'low';
         if (connection.effectiveType === '4g') return 'high';
         if (connection.effectiveType === '3g') return 'medium';
         return 'low';
     }
-    
-    // 🔧 개선 #4: 에러 발생 시에도 blob URL 정리
-    async function fetchImageAsBlob(fileId) {
+
+    async function fetchImageAsBlob(fileId, signal) {
         const token = localStorage.getItem('access_token');
-        
-        if (!token) {
-            throw new Error('인증 토큰이 없습니다.');
-        }
-        
+        if (!token) throw new Error('인증 토큰이 없습니다.');
+
+        // 동일 파일 중복 요청이면 기존 Promise 재사용
         if (loadingQueue.has(fileId)) {
             log.debug(`[로더] 이미 로딩 중: ${fileId}`);
-            return await loadingQueue.get(fileId);
+            return loadingQueue.get(fileId);
         }
-        
-        while (concurrentLoads >= MAX_CONCURRENT) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        
-        concurrentLoads++;
-        
+
+        await acquireSemaphore();
+
         const loadPromise = (async () => {
-            let blobUrl = null; // 🔧 추적을 위해 외부에 선언
-            
+            let blobUrl = null;
             try {
                 const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
-                
                 const response = await fetch(url, {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Accept': 'image/webp,image/*'
                     },
-                    cache: 'force-cache',
-                    mode: 'cors'
+                    // 인증 헤더가 있는 요청은 HTTP 캐시가 저장하지 않으므로 no-store로 명확히 지정
+                    cache: 'no-store',
+                    mode: 'cors',
+                    signal
                 });
-                
+
                 if (!response.ok) {
-                    if (response.status === 401) {
-                        throw new Error('AUTH_EXPIRED');
-                    }
+                    if (response.status === 401) throw new Error('AUTH_EXPIRED');
                     throw new Error(`HTTP ${response.status}`);
                 }
-                
+
                 const blob = await response.blob();
                 blobUrl = URL.createObjectURL(blob);
-                
-                await validateImage(blobUrl);
-                
                 return blobUrl;
-                
+
             } catch (error) {
-                // 🔧 개선 #4: 에러 발생 시 생성된 blobUrl 정리
                 if (blobUrl) {
                     URL.revokeObjectURL(blobUrl);
                     log.debug(`[메모리 정리] 에러로 인한 blob URL 해제: ${fileId}`);
                 }
                 throw error;
             } finally {
-                concurrentLoads--;
+                releaseSemaphore();
                 loadingQueue.delete(fileId);
+                abortControllers.delete(fileId);
             }
         })();
-        
+
         loadingQueue.set(fileId, loadPromise);
-        return await loadPromise;
+        return loadPromise;
     }
-    
-    async function validateImage(url) {
-        return new Promise((resolve, reject) => {
-            const img = new Image();
-            const timeout = setTimeout(() => {
-                reject(new Error('이미지 로드 타임아웃'));
-            }, 15000);
-            
-            img.onload = () => {
-                clearTimeout(timeout);
-                resolve(img);
-            };
-            
-            img.onerror = () => {
-                clearTimeout(timeout);
-                reject(new Error('이미지 로드 실패'));
-            };
-            
-            img.src = url;
-        });
-    }
-    
+
     async function loadImage(imageData, priority = 'normal') {
         const cacheKey = imageData.id;
-        
+
         const cached = imageCache.get(cacheKey);
         if (cached) {
             log.debug(`[캐시 히트] ${imageData.name}`);
             return cached.blobUrl;
         }
-        
+
         try {
             log.info(`[로더] 다운로드 시작: ${imageData.name}`);
-            
-            const blobUrl = await fetchImageAsBlob(imageData.id);
-            
+
+            const controller = new AbortController();
+            abortControllers.set(imageData.id, controller);
+
+            const blobUrl = await fetchImageAsBlob(imageData.id, controller.signal);
+
             imageCache.set(cacheKey, {
                 blobUrl,
+                pageNumber: imageData.pageNumber || 0,
                 timestamp: Date.now(),
                 size: imageData.size || 0
             });
-            
+
             log.debug(`[로더] 완료: ${imageData.name} (캐시 크기: ${imageCache.size()})`);
             return blobUrl;
-            
+
         } catch (error) {
+            if (error.name === 'AbortError') {
+                log.debug(`[로더] 요청 취소: ${imageData.name}`);
+                throw error;
+            }
+
             log.error(`[로더 오류] ${imageData.name}:`, error);
-            
+
             if (error.message === 'AUTH_EXPIRED') {
                 if (window.FastBook && window.FastBook.TokenManager) {
                     await window.FastBook.TokenManager.refreshToken();
                     return loadImage(imageData, priority);
                 }
             }
-            
+
             throw error;
         }
     }
-    
+
+    // 현재 페이지와 관계없는 진행 중인 요청들을 취소
+    function cancelStaleRequests(currentPage, images, windowSize = 5) {
+        const keepStart = Math.max(1, currentPage - windowSize);
+        const keepEnd = Math.min((images || []).length, currentPage + windowSize);
+
+        abortControllers.forEach((controller, fileId) => {
+            const imgIndex = (images || []).findIndex(img => img.id === fileId);
+            if (imgIndex === -1) return;
+            const page = imgIndex + 1;
+            if (page < keepStart || page > keepEnd) {
+                controller.abort();
+                log.debug(`[요청 취소] 범위 밖 페이지 ${page}`);
+            }
+        });
+    }
+
     async function preloadImages(currentPage, totalPages, images) {
         const preloadCount = preloader.getPreloadCount();
         const startPage = Math.max(1, currentPage - 1);
         const endPage = Math.min(totalPages, currentPage + preloadCount);
-        
-        const promises = [];
+
+        // 범위 밖 진행 중인 요청 취소
+        cancelStaleRequests(currentPage, images, preloadCount + 2);
+
         const pages = [];
-        
         for (let i = currentPage + 1; i <= Math.min(currentPage + 2, endPage); i++) {
             pages.push({ page: i, priority: 'high' });
         }
-        
         for (let i = currentPage + 3; i <= endPage; i++) {
             pages.push({ page: i, priority: 'normal' });
         }
-        
         if (currentPage > 1 && !imageCache.has(images[currentPage - 2].id)) {
             pages.push({ page: currentPage - 1, priority: 'low' });
         }
-        
-        for (const { page, priority } of pages) {
-            const imageData = images[page - 1];
-            if (imageData && !imageCache.has(imageData.id) && !loadingQueue.has(imageData.id)) {
-                promises.push(
-                    loadImage(imageData, priority)
-                        .catch(err => log.warn(`[프리로드 실패] 페이지 ${page}:`, err))
-                );
-                
-                if (promises.length >= MAX_CONCURRENT) {
-                    await Promise.race(promises);
-                }
-            }
-        }
-        
+
+        const promises = pages
+            .filter(({ page }) => {
+                const imageData = images[page - 1];
+                return imageData && !imageCache.has(imageData.id) && !loadingQueue.has(imageData.id);
+            })
+            .map(({ page, priority }) =>
+                loadImage(images[page - 1], priority)
+                    .catch(err => {
+                        if (err.name !== 'AbortError') {
+                            log.warn(`[프리로드 실패] 페이지 ${page}:`, err);
+                        }
+                    })
+            );
+
         await Promise.allSettled(promises);
-        
         log.debug(`[프리로딩 완료] ${startPage}-${endPage} 페이지 (캐시: ${imageCache.size()}개)`);
     }
-    
+
+    // pageNumber를 캐시 값에 저장하므로 정확한 페이지 기반 정리 가능
     function cleanupCache(currentPage, windowSize = 10) {
         const keepStart = Math.max(1, currentPage - windowSize);
         const keepEnd = currentPage + windowSize;
-        
+
         let cleaned = 0;
         imageCache.cache.forEach((value, key) => {
-            const pageNum = parseInt(key.split('_')[1]) || 0;
-            
-            if (pageNum < keepStart || pageNum > keepEnd) {
-                if (value.blobUrl) {
-                    URL.revokeObjectURL(value.blobUrl);
-                }
+            const pageNum = value.pageNumber || 0;
+            if (pageNum !== 0 && (pageNum < keepStart || pageNum > keepEnd)) {
+                if (value.blobUrl) URL.revokeObjectURL(value.blobUrl);
                 imageCache.cache.delete(key);
                 cleaned++;
             }
         });
-        
-        if (cleaned > 0) {
-            log.debug(`[캐시 정리] ${cleaned}개 이미지 제거`);
-        }
+
+        if (cleaned > 0) log.debug(`[캐시 정리] ${cleaned}개 이미지 제거`);
     }
-    
+
     function getMemoryUsage() {
         if (performance.memory) {
             const used = performance.memory.usedJSHeapSize;
             const limit = performance.memory.jsHeapSizeLimit;
             const percentage = (used / limit) * 100;
-            
+
             log.debug(`[메모리] 사용: ${(used / 1024 / 1024).toFixed(1)}MB (${percentage.toFixed(1)}%)`);
-            
+
             if (percentage > 70) {
                 const currentSize = imageCache.size();
                 imageCache.maxSize = Math.max(20, Math.floor(currentSize * 0.7));
                 log.warn('[메모리 경고] 캐시 크기 축소:', imageCache.maxSize);
             }
-            
+
             return percentage;
         }
         return 0;
     }
-    
+
     if (navigator.connection) {
         navigator.connection.addEventListener('change', () => {
             const quality = getNetworkQuality();
             log.info('[네트워크 변경]', quality);
-            
             if (quality === 'high') {
                 preloader.preloadCount = Math.min(preloader.preloadCount + 2, 10);
             }
         });
     }
-    
+
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
             log.debug('[백그라운드] 메모리 정리 시작');
             const originalSize = imageCache.maxSize;
             imageCache.maxSize = Math.max(10, Math.floor(originalSize / 2));
-            
+
             setTimeout(() => {
                 if (!document.hidden) {
                     imageCache.maxSize = originalSize;
@@ -548,27 +539,31 @@ const ImageLoader = (() => {
             }, 1000);
         }
     });
-    
+
     function getStats() {
         return {
             cacheSize: imageCache.size(),
             loadingQueue: loadingQueue.size,
-            concurrentLoads,
+            semaphoreSlots,
             preloadCount: preloader.getPreloadCount(),
             networkQuality: getNetworkQuality(),
             memoryUsage: getMemoryUsage()
         };
     }
-    
+
     return {
         loadImage,
         preloadImages,
         cleanupCache,
+        cancelStaleRequests,
         clearCache: () => imageCache.clear(),
         getStats,
         recordPageTransition: () => preloader.recordPageTransition(),
         setMaxCacheSize: (size) => { imageCache.maxSize = size; },
-        setMaxConcurrent: (max) => { MAX_CONCURRENT = max; },
+        setMaxConcurrent: (max) => {
+            MAX_CONCURRENT = max;
+            semaphoreSlots = max;
+        },
         getCacheSize: () => imageCache.size(),
         hasInCache: (fileId) => imageCache.has(fileId)
     };
@@ -777,14 +772,17 @@ const Navigation = (() => {
         
         UIController.updatePageDisplay();
         UIController.showLoading();
-        
+
+        // 현재 페이지와 거리가 먼 진행 중인 요청 취소
+        ImageLoader.cancelStaleRequests(pageNumber, ViewerState.images);
+
         try {
             const imageData = ViewerState.images[pageNumber - 1];
-            
+
             if (!imageData) {
                 throw new Error(`페이지 ${pageNumber}의 이미지 데이터가 없습니다.`);
             }
-            
+
             const imageUrl = await ImageLoader.loadImage(imageData, 'high');
             
             UIController.showImage(imageUrl);
