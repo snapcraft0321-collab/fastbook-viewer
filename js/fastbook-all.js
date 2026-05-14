@@ -979,24 +979,13 @@ function displayBooks(books) {
     const sortedBooks = sortBooks(books);
     const searchQuery = elements.searchInput.value.trim();
 
-    // 가상 스크롤 사용 (책이 20권 이상일 때)
-    if (sortedBooks.length > 20) {
+    if (sortedBooks.length > 40) {
         VirtualScroll.initialize(sortedBooks);
         VirtualScroll.renderNextBatch();
-
-        // 무한 스크롤 감지
         setupInfiniteScroll();
     } else {
-        // 책이 적을 때는 모두 렌더링
         for (const book of sortedBooks) {
-            const bookCard = createBookCard(book, searchQuery);
-            elements.booksGrid.appendChild(bookCard);
-
-            // Lazy loading 적용
-            const img = bookCard.querySelector('.lazy-load');
-            if (img) {
-                LazyImageLoader.observe(img);
-            }
+            elements.booksGrid.appendChild(createBookCard(book, searchQuery));
         }
     }
 
@@ -1042,7 +1031,7 @@ function createBookCard(book, searchQuery = '') {
     card.innerHTML = `
         <div class="book-cover">
             <div class="book-cover-skeleton"></div>
-            <img data-src="${book.coverImage}" alt="${book.title}" class="lazy-load">
+            <img src="${book.coverImage}" alt="${book.title}">
         </div>
         <div class="book-info">
             <div class="book-title">${highlightedTitle}</div>
@@ -1065,6 +1054,16 @@ function createBookCard(book, searchQuery = '') {
             </div>
         </div>
     `;
+
+    const img = card.querySelector('.book-cover img');
+    if (img) {
+        if (img.complete) {
+            img.classList.add('loaded');
+        } else {
+            img.onload = () => img.classList.add('loaded');
+            img.onerror = () => img.classList.add('loaded');
+        }
+    }
 
     card.addEventListener('click', () => {
         sessionStorage.setItem('currentBook', JSON.stringify(book));
@@ -1330,7 +1329,7 @@ const LazyImageLoader = (() => {
 // 가상 스크롤 시스템 (책이 많을 때 성능 최적화)
 // ============================================
 const VirtualScroll = (() => {
-    const BATCH_SIZE = 20; // 한 번에 렌더링할 카드 수
+    const BATCH_SIZE = 40; // 한 번에 렌더링할 카드 수
     let currentBatch = 0;
     let allBooks = [];
     let isLoading = false;
@@ -1351,14 +1350,7 @@ const VirtualScroll = (() => {
         const batchBooks = allBooks.slice(start, end);
 
         batchBooks.forEach(book => {
-            const bookCard = createBookCard(book, elements.searchInput?.value || '');
-            elements.booksGrid.appendChild(bookCard);
-
-            // Lazy loading 적용
-            const img = bookCard.querySelector('.lazy-load');
-            if (img) {
-                LazyImageLoader.observe(img);
-            }
+            elements.booksGrid.appendChild(createBookCard(book, elements.searchInput?.value || ''));
         });
 
         currentBatch++;
@@ -2213,8 +2205,8 @@ displayBooks = function(books) {
             // 즐겨찾기 필터 중이면 재렌더링
             if (currentSort === 'favorites') displayBooks(filteredBooks);
         });
-        const coverEl = card.querySelector('.book-cover');
-        if (coverEl) coverEl.appendChild(btn);
+        const infoEl = card.querySelector('.book-info');
+        if (infoEl) infoEl.appendChild(btn);
     });
 };
 
