@@ -255,6 +255,7 @@ html, body {
     align-items: center;
     gap: 0.5rem;
     user-select: none;
+    white-space: nowrap;
 }
 
 .filter-chip:hover:not(.active) {
