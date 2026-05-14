@@ -85,9 +85,9 @@ class AdaptivePreloader {
     constructor() {
         this.readingSpeed = [];
         this.lastPageTime = Date.now();
-        this.preloadCount = 3;
-        this.minPreload = 2;
-        this.maxPreload = 10;
+        this.preloadCount = 60;
+        this.minPreload = 20;
+        this.maxPreload = 60;
     }
     
     recordPageTransition() {
@@ -289,13 +289,13 @@ const ViewerStorage = (() => {
 // Image Loader 모듈
 // ============================================
 const ImageLoader = (() => {
-    const imageCache = new LRUCache(50);
+    const imageCache = new LRUCache(80);
     // key: fileId → Promise<blobUrl> (중복 요청 방지용)
     const loadingQueue = new Map();
     // key: fileId → AbortController (진행 중 요청 취소용)
     const abortControllers = new Map();
     const preloader = new AdaptivePreloader();
-    let MAX_CONCURRENT = 3;
+    let MAX_CONCURRENT = 6;
 
     // 세마포어: busy-wait 없이 동시 로드 수 제한
     let semaphoreSlots = MAX_CONCURRENT;
@@ -506,7 +506,7 @@ const ImageLoader = (() => {
 
             if (percentage > 70) {
                 const currentSize = imageCache.size();
-                imageCache.maxSize = Math.max(20, Math.floor(currentSize * 0.7));
+                imageCache.maxSize = Math.max(40, Math.floor(currentSize * 0.7));
                 log.warn('[메모리 경고] 캐시 크기 축소:', imageCache.maxSize);
             }
 
@@ -520,7 +520,7 @@ const ImageLoader = (() => {
             const quality = getNetworkQuality();
             log.info('[네트워크 변경]', quality);
             if (quality === 'high') {
-                preloader.preloadCount = Math.min(preloader.preloadCount + 2, 10);
+                preloader.preloadCount = Math.min(preloader.preloadCount + 2, preloader.maxPreload);
             }
         });
     }
@@ -529,7 +529,7 @@ const ImageLoader = (() => {
         if (document.hidden) {
             log.debug('[백그라운드] 메모리 정리 시작');
             const originalSize = imageCache.maxSize;
-            imageCache.maxSize = Math.max(10, Math.floor(originalSize / 2));
+            imageCache.maxSize = Math.max(30, Math.floor(originalSize / 2));
 
             setTimeout(() => {
                 if (!document.hidden) {
@@ -1248,7 +1248,7 @@ if ('storage' in navigator && 'estimate' in navigator.storage) {
         const percentUsed = (estimate.usage / estimate.quota) * 100;
         if (percentUsed > 90) {
             log.warn('저장 공간 부족:', percentUsed.toFixed(2) + '%');
-            ImageLoader.setMaxCacheSize(20);
+            ImageLoader.setMaxCacheSize(40);
         }
     });
 }
