@@ -961,12 +961,20 @@ html, body {
     }
 
     .search-filters {
-        flex-direction: column;
-        align-items: stretch;
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-start;
     }
 
     .filter-chip {
+        flex: 1;
         justify-content: center;
+    }
+
+    .view-toggle-btn {
+        margin-left: auto;
+        flex: 0 0 auto;
     }
 }
 
@@ -994,6 +1002,120 @@ html, body {
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-secondary);
+}
+
+/* ============================================
+   뷰 토글 버튼
+   ============================================ */
+.view-toggle-btn {
+    margin-left: auto;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    width: 38px;
+    height: 38px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: var(--transition);
+    flex-shrink: 0;
+}
+
+.view-toggle-btn:hover {
+    background: var(--primary-light);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.view-toggle-btn.active {
+    background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
+    border-color: var(--primary-color);
+    color: white;
+    box-shadow: var(--shadow-md);
+}
+
+/* ============================================
+   리스트 뷰
+   ============================================ */
+.books-grid.list-view {
+    display: flex !important;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.books-grid.list-view .book-card {
+    flex-direction: row;
+    height: 68px;
+    border-radius: var(--radius-md);
+    transform: none;
+}
+
+.books-grid.list-view .book-card:hover {
+    transform: translateX(3px);
+    box-shadow: var(--shadow-md);
+}
+
+.books-grid.list-view .book-card::before {
+    width: 3px;
+    height: 100%;
+    right: auto;
+    bottom: 0;
+    top: 0;
+}
+
+.books-grid.list-view .book-cover {
+    width: 48px;
+    min-width: 48px;
+    height: 68px;
+    padding-top: 0;
+    flex-shrink: 0;
+    border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.books-grid.list-view .book-cover img {
+    border-radius: 0;
+}
+
+.books-grid.list-view .book-info {
+    padding: 0.5rem 0.875rem;
+    gap: 0.2rem;
+    justify-content: center;
+    min-width: 0;
+}
+
+.books-grid.list-view .book-title {
+    font-size: 0.875rem;
+    font-weight: 500;
+    min-height: auto;
+    -webkit-line-clamp: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+}
+
+.books-grid.list-view .book-meta {
+    flex-direction: row;
+    gap: 0.75rem;
+    font-size: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.books-grid.list-view .book-pages svg,
+.books-grid.list-view .book-date svg {
+    width: 13px;
+    height: 13px;
+}
+
+/* 리스트 뷰에서 즐겨찾기 버튼 위치 조정 */
+.books-grid.list-view .btn-favorite {
+    width: 24px;
+    height: 24px;
+    top: 4px;
+    right: 4px;
+    padding: 3px;
 }
 
 /* 다크모드 추가 스타일 */

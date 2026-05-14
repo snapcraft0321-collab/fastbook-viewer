@@ -766,6 +766,7 @@ let elements = {};
 let allBooks = []; // 전체 책 목록 저장
 let filteredBooks = []; // 필터링된 책 목록
 let currentSort = 'recent'; // 현재 정렬 방식
+let currentView = localStorage.getItem('bookViewMode') || 'grid'; // 'grid' | 'list'
 
 function initializeElements() {
     elements = {
@@ -788,7 +789,10 @@ function initializeElements() {
         searchClear: document.getElementById('searchClear'),
         noSearchResults: document.getElementById('noSearchResults'),
         noSearchResultsText: document.getElementById('noSearchResultsText'),
-        clearSearchBtn: document.getElementById('clearSearchBtn')
+        clearSearchBtn: document.getElementById('clearSearchBtn'),
+        // 뷰 토글
+        viewToggleBtn: document.getElementById('viewToggleBtn'),
+        viewToggleIcon: document.getElementById('viewToggleIcon')
     };
 }
 
@@ -818,7 +822,7 @@ function updateUIState(state) {
             elements.loadingState.style.display = 'flex';
             break;
         case 'books':
-            elements.booksGrid.style.display = 'grid';
+            elements.booksGrid.style.display = currentView === 'list' ? 'flex' : 'grid';
             showCacheIndicator();
             break;
         case 'empty':
@@ -1602,6 +1606,13 @@ function setupEventListeners() {
     // 정렬 필터 이벤트 설정
     setupSortFilters();
 
+    // 뷰 토글 버튼
+    if (elements.viewToggleBtn) {
+        elements.viewToggleBtn.addEventListener('click', toggleView);
+    }
+    // 저장된 뷰 모드 즉시 반영
+    applyViewMode();
+
     // 페이지 포커스 시 마지막 읽은 시간 업데이트
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
@@ -1612,6 +1623,43 @@ function setupEventListeners() {
             }
         }
     });
+}
+
+// ============================================
+// 뷰 모드 (그리드 / 리스트) 전환
+// ============================================
+const VIEW_ICONS = {
+    // 리스트 뷰로 전환할 때 보여줄 아이콘 (현재 그리드 → 리스트로 전환 제안)
+    grid: `<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>`,
+    // 그리드 뷰로 전환할 때 보여줄 아이콘
+    list: `<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>`
+};
+
+function applyViewMode() {
+    const isListView = currentView === 'list';
+    elements.booksGrid.classList.toggle('list-view', isListView);
+
+    // 그리드가 표시 중일 때만 display 갱신
+    if (elements.booksGrid.style.display !== 'none') {
+        elements.booksGrid.style.display = isListView ? 'flex' : 'grid';
+    }
+
+    if (elements.viewToggleBtn) {
+        elements.viewToggleBtn.classList.toggle('active', isListView);
+        elements.viewToggleBtn.title = isListView ? '그리드 보기' : '리스트 보기';
+        elements.viewToggleBtn.setAttribute('aria-label', isListView ? '그리드 보기로 전환' : '리스트 보기로 전환');
+    }
+
+    if (elements.viewToggleIcon) {
+        elements.viewToggleIcon.innerHTML = isListView ? VIEW_ICONS.list : VIEW_ICONS.grid;
+    }
+}
+
+function toggleView() {
+    currentView = currentView === 'grid' ? 'list' : 'grid';
+    localStorage.setItem('bookViewMode', currentView);
+    applyViewMode();
+    log.info(`뷰 모드 변경: ${currentView}`);
 }
 
 // 정렬 필터 초기화 및 이벤트 설정
