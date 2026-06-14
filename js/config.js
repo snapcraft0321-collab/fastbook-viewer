@@ -14,6 +14,7 @@ const CONFIG = {
     // 앱 설정
     APP_NAME: 'FastBook Viewer',
     BOOKS_FOLDER_NAME: 'Books', // Google Drive의 책 폴더 이름
+    VIDEO_FOLDER_NAME: 'Video', // Google Drive의 영상 폴더 이름
     
     // 이미지 로딩 설정
     PRELOAD_PAGES: 5, // 미리 로드할 페이지 수

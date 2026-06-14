@@ -808,6 +808,7 @@ function updateAuthUI(isAuthenticated) {
         if (elements.userInfo) elements.userInfo.style.display = 'none';
         if (elements.refreshBtn) elements.refreshBtn.style.display = 'none';
     }
+    eventBus.emit('auth-changed', isAuthenticated);
 }
 
 function updateUIState(state) {

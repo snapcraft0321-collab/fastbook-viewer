@@ -43,6 +43,24 @@
             </div>
         </header>
 
+        <!-- 탭 네비게이션 (로그인 후 표시) -->
+        <nav id="mainNav" class="main-nav" role="tablist" aria-label="콘텐츠 탭" style="display:none;">
+            <button class="nav-tab active" data-tab="books" role="tab" aria-selected="true" aria-controls="booksSection">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/>
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+                </svg>
+                책
+            </button>
+            <button class="nav-tab" data-tab="videos" role="tab" aria-selected="false" aria-controls="videosSection">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <polygon points="23 7 16 12 23 17 23 7"/>
+                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                </svg>
+                영상
+            </button>
+        </nav>
+
         <!-- 메인 컨텐츠 영역 -->
         <main class="main-content">
             <!-- 로그인 섹션 -->
@@ -206,6 +224,40 @@
                     <button id="clearSearchBtn" class="btn-secondary">검색 초기화</button>
                 </div>
             </div>
+
+            <!-- 영상 섹션 -->
+            <div id="videosSection" class="videos-section" style="display:none;" role="tabpanel" aria-labelledby="videos-tab">
+                <!-- 로딩 상태 -->
+                <div id="videoLoadingState" class="loading-state" style="display:none;" role="status" aria-live="polite">
+                    <div class="spinner" aria-hidden="true"></div>
+                    <p>영상 목록을 불러오는 중...</p>
+                </div>
+
+                <!-- 영상 그리드 -->
+                <div id="videoGrid" class="video-grid" style="display:none;" role="list" aria-label="영상 목록"></div>
+
+                <!-- 빈 상태 -->
+                <div id="videoEmptyState" class="empty-state" style="display:none;">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <polygon points="23 7 16 12 23 17 23 7"/>
+                        <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                    </svg>
+                    <h3>영상이 없습니다</h3>
+                    <p>Google Drive의 'Video' 폴더에 영상 파일을 추가해주세요.</p>
+                </div>
+
+                <!-- 에러 상태 -->
+                <div id="videoErrorState" class="error-state" style="display:none;">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <h3>오류가 발생했습니다</h3>
+                    <p id="videoErrorMessage">영상 목록을 불러올 수 없습니다.</p>
+                    <button id="videoRetryBtn" class="btn-secondary">다시 시도</button>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -243,8 +295,26 @@
         </div>
     </div>
 
+    <!-- 영상 플레이어 모달 -->
+    <div id="videoModal" class="video-modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="videoModalTitle">
+        <div class="video-modal">
+            <div class="video-modal-header">
+                <h3 class="video-modal-title" id="videoModalTitle"></h3>
+                <button class="video-modal-close" id="videoModalClose" aria-label="영상 닫기">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="video-modal-body">
+                <iframe id="videoPlayer" class="video-player-frame" allowfullscreen allow="autoplay"></iframe>
+            </div>
+        </div>
+    </div>
+
     <!-- 스크립트 로드 -->
     <script src="js/config.js"></script>
     <script src="js/fastbook-all.js"></script>
+    <script src="js/video-all.js"></script>
 </body>
 </html>
