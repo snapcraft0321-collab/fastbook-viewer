@@ -91,9 +91,11 @@ const BooksCache = (() => {
             sessionStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
             log.info('책 목록 캐시 저장 완료:', books.length + '권');
         } catch (error) {
-            log.error('캐시 저장 실패:', error);
             if (error.name === 'QuotaExceededError') {
+                log.warn('캐시 용량 초과 - 캐시 없이 계속 진행:', books.length + '권');
                 clearOldCache();
+            } else {
+                log.error('캐시 저장 실패:', error);
             }
         }
     }
@@ -710,15 +712,25 @@ const DriveAPI = (() => {
     
     async function getBookFolders(booksFolderId) {
         return TokenManager.makeAuthenticatedRequest(async () => {
-            const response = await gapi.client.drive.files.list({
-                q: `'${booksFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-                fields: 'files(id, name, modifiedTime)',
-                orderBy: 'name',
-                pageSize: 300
-            });
-            
-            log.info(`${response.result.files.length}개의 책 폴더 발견`);
-            return response.result.files;
+            const allFiles = [];
+            let pageToken = null;
+
+            do {
+                const params = {
+                    q: `'${booksFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+                    fields: 'nextPageToken, files(id, name, modifiedTime)',
+                    orderBy: 'name',
+                    pageSize: 1000
+                };
+                if (pageToken) params.pageToken = pageToken;
+
+                const response = await gapi.client.drive.files.list(params);
+                allFiles.push(...response.result.files);
+                pageToken = response.result.nextPageToken || null;
+            } while (pageToken);
+
+            log.info(`${allFiles.length}개의 책 폴더 발견`);
+            return allFiles;
         });
     }
     
