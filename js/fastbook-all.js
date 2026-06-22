@@ -1068,6 +1068,28 @@ function createBookCard(book, searchQuery = '') {
         </div>
     `;
 
+    const infoEl = card.querySelector('.book-info');
+    if (infoEl) {
+        const isFav = typeof FavoritesManager !== 'undefined' && FavoritesManager.isFavorite(book.id);
+        const btn = document.createElement('button');
+        btn.className = 'btn-favorite' + (isFav ? ' active' : '');
+        btn.setAttribute('aria-label', isFav ? '즐겨찾기 해제' : '즐겨찾기 추가');
+        btn.setAttribute('aria-pressed', isFav ? 'true' : 'false');
+        btn.title = '즐겨찾기';
+        btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="${isFav ? '#f6ad55' : 'none'}" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const added = FavoritesManager.toggle(book.id);
+            btn.classList.toggle('active', added);
+            btn.setAttribute('aria-pressed', added ? 'true' : 'false');
+            btn.setAttribute('aria-label', added ? '즐겨찾기 해제' : '즐겨찾기 추가');
+            const svg = btn.querySelector('svg');
+            if (svg) svg.setAttribute('fill', added ? '#f6ad55' : 'none');
+            if (currentSort === 'favorites') displayBooks(filteredBooks);
+        });
+        infoEl.appendChild(btn);
+    }
+
     const img = card.querySelector('.book-cover img');
     if (img) {
         if (img.complete) {
@@ -2193,34 +2215,10 @@ function initializeNewFeatures() {
     // (filter-chip 'favorites' 는 setupSortFilters 에서 처리)
 }
 
-// 기존 displayBooks 함수를 확장해 즐겨찾기 버튼 추가 및 최근 섹션 렌더링
+// 기존 displayBooks 함수를 확장해 최근 섹션 렌더링
 const _origDisplayBooks = displayBooks;
 displayBooks = function(books) {
     _origDisplayBooks(books);
-    // 북 카드에 즐겨찾기 버튼 추가
-    document.querySelectorAll('.book-card').forEach(card => {
-        const bookId = card.dataset.bookId;
-        if (!bookId || card.querySelector('.btn-favorite')) return;
-        const btn = document.createElement('button');
-        btn.className = 'btn-favorite' + (FavoritesManager.isFavorite(bookId) ? ' active' : '');
-        btn.setAttribute('aria-label', FavoritesManager.isFavorite(bookId) ? '즐겨찾기 해제' : '즐겨찾기 추가');
-        btn.setAttribute('aria-pressed', FavoritesManager.isFavorite(bookId) ? 'true' : 'false');
-        btn.title = '즐겨찾기';
-        btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="${FavoritesManager.isFavorite(bookId) ? '#f6ad55' : 'none'}" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const added = FavoritesManager.toggle(bookId);
-            btn.classList.toggle('active', added);
-            btn.setAttribute('aria-pressed', added ? 'true' : 'false');
-            btn.setAttribute('aria-label', added ? '즐겨찾기 해제' : '즐겨찾기 추가');
-            const svg = btn.querySelector('svg');
-            if (svg) svg.setAttribute('fill', added ? '#f6ad55' : 'none');
-            // 즐겨찾기 필터 중이면 재렌더링
-            if (currentSort === 'favorites') displayBooks(filteredBooks);
-        });
-        const infoEl = card.querySelector('.book-info');
-        if (infoEl) infoEl.appendChild(btn);
-    });
 };
 
 // sortBooks 함수 확장: 즐겨찾기 정렬 추가
